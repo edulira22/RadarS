@@ -1,26 +1,81 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ─── Fonts ─────────────────────────────────────────────────────── */
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
+
+/* ─── RadarS Design Tokens ───────────────────────────────────────── */
+@theme {
+  /* Brand palette */
+  --color-navy-deep:       #0B1B3D;
+  --color-navy-800:        #11265A;
+  --color-ocean:           #2563EB;
+  --color-ocean-dark:      #1D4ED8;
+  --color-cyan:            #04C4D9;
+  --color-gold:            #F2B705;
+  --color-orange:          #F25C05;
+
+  /* Temperature */
+  --color-temp-activo:     #22c55e;
+  --color-temp-atencion:   #F2B705;
+  --color-temp-urgente:    #F25C05;
+  --color-temp-riesgo:     #ef4444;
+  --color-temp-dormido:    #9ca3af;
+
+  /* Light surfaces */
+  --color-bg:              #F4F6FA;
+  --color-bg-2:            #EEF2F8;
+  --color-card:            #FFFFFF;
+  --color-card-soft:       #F8FAFD;
+  --color-border:          #E4E9F2;
+  --color-border-soft:     #EEF1F7;
+
+  /* Text on light */
+  --color-fg-hi:           #0B1B3D;
+  --color-fg:              #1F2A47;
+  --color-fg-dim:          #6B7793;
+  --color-fg-muted:        #94A1BD;
+
+  /* Text on dark sidebar */
+  --color-fg-on-dark:      #F4F8FF;
+  --color-fg-on-dark-dim:  #9FB0D0;
+
+  /* Stage ring fills */
+  --color-ring-base:        #EAF1F8;
+  --color-ring-prospeccion: #DCE7F3;
+  --color-ring-interes:     #C7DDF0;
+  --color-ring-decision:    #FFF1CF;
+  --color-ring-cierre:      #D8F0DC;
+
+  /* Stage label colors */
+  --color-stage-base:        #6B8FB5;
+  --color-stage-prospeccion: #2563EB;
+  --color-stage-interes:     #F25C05;
+  --color-stage-decision:    #F2B705;
+  --color-stage-cierre:      #22c55e;
+
+  /* Typography */
+  --font-display: "Sora", system-ui, sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ─── Base ───────────────────────────────────────────────────────── */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  font-family: var(--font-display);
+  color: var(--color-fg-hi);
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+button { font-family: inherit; cursor: pointer; }
+input, textarea, select { font-family: inherit; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-fg-muted); }

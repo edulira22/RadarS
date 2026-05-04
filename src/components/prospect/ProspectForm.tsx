@@ -20,13 +20,14 @@ const MEDIUMS = [
 interface Props {
   userId: string
   prospect?: ProspectView
+  defaultSource?: string
   onClose: () => void
   onSaved: () => void
 }
 
-export default function ProspectForm({ userId, prospect, onClose, onSaved }: Props) {
+export default function ProspectForm({ userId, prospect, defaultSource, onClose, onSaved }: Props) {
   const isEdit = !!prospect
-  const [showExtra, setShowExtra] = useState(false)
+  const [showExtra, setShowExtra] = useState(!!defaultSource)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,11 +44,13 @@ export default function ProspectForm({ userId, prospect, onClose, onSaved }: Pro
       email: prospect?.email ?? '',
       potential_value: prospect?.potential_value ?? undefined,
       probability: prospect?.probability ?? undefined,
+      source: (prospect?.source ?? defaultSource ?? '') as ProspectFormData['source'],
     },
   })
 
   const selectedStage = watch('stage')
   const selectedMedium = watch('contact_medium')
+  const nextActionDate = watch('next_action_date')
 
   const onSubmit = async (data: ProspectFormData) => {
     setSaving(true)
@@ -186,8 +189,10 @@ export default function ProspectForm({ userId, prospect, onClose, onSaved }: Pro
                   </div>
                 </Field>
                 <Field label="Fecha y hora" required error={errors.next_action_date?.message}>
-                  <input {...register('next_action_date')} type="datetime-local" {...inp}
-                    style={{ ...inp.style, fontFamily: 'var(--font-mono)', cursor: 'pointer' }} />
+                  <DateTimePicker
+                    value={nextActionDate}
+                    onChange={(v) => setValue('next_action_date', v, { shouldValidate: true })}
+                  />
                 </Field>
               </div>
 
@@ -342,6 +347,74 @@ function Field({
       </label>
       {children}
       {error && <p className="text-[11px] mt-1" style={{ color: '#ef4444' }}>{error}</p>}
+    </div>
+  )
+}
+
+function DateTimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  const add = (d: Date, days: number) => new Date(d.getTime() + days * 86400000)
+  const today = new Date()
+
+  const presets = [
+    { label: 'Hoy',        date: fmt(today),        time: '10:00' },
+    { label: 'Mañana',     date: fmt(add(today, 1)), time: '10:00' },
+    { label: 'En 3 días',  date: fmt(add(today, 3)), time: '10:00' },
+    { label: 'En 1 semana',date: fmt(add(today, 7)), time: '10:00' },
+  ]
+
+  const currentDate = value?.slice(0, 10) ?? ''
+  const currentTime = value?.slice(11, 16) ?? ''
+
+  const update = (d: string, t: string) => {
+    if (d) onChange(`${d}T${t || '10:00'}`)
+  }
+
+  const baseStyle: React.CSSProperties = {
+    background: 'var(--color-card-soft)',
+    border: '1px solid var(--color-border)',
+    color: 'var(--color-fg-hi)',
+    fontFamily: 'var(--font-mono)',
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Quick presets */}
+      <div className="flex gap-1.5 flex-wrap">
+        {presets.map(p => {
+          const isActive = currentDate === p.date
+          return (
+            <button type="button" key={p.label}
+              onClick={() => update(p.date, p.time)}
+              className="px-3 py-1 rounded-lg text-[11px] font-semibold transition-all"
+              style={{
+                background: isActive ? 'var(--color-ocean)' : 'var(--color-bg)',
+                color: isActive ? '#fff' : 'var(--color-fg-dim)',
+                border: `1px solid ${isActive ? 'var(--color-ocean)' : 'var(--color-border)'}`,
+              }}>
+              {p.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Date + Time selectors */}
+      <div className="flex gap-2">
+        <input type="date" value={currentDate}
+          onChange={e => update(e.target.value, currentTime)}
+          className="flex-1 h-10 px-3 rounded-xl text-sm outline-none"
+          style={baseStyle}
+        />
+        <select value={currentTime}
+          onChange={e => update(currentDate, e.target.value)}
+          className="h-10 px-3 rounded-xl text-sm outline-none"
+          style={{ ...baseStyle, cursor: 'pointer' }}>
+          <option value="">— hora</option>
+          {['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'].map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </div>
     </div>
   )
 }

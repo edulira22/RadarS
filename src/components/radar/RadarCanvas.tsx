@@ -7,7 +7,6 @@ import { polar, fmtMoneyShort } from '@/lib/utils'
 import type { ProspectView, Stage, RadarType } from '@/types'
 import StageChangeModal from './StageChangeModal'
 
-// Positions for each ring: angle spread, radius fraction
 const RING_RADII: Record<string, number> = {
   cierre:      75,
   decision:    150,
@@ -16,7 +15,6 @@ const RING_RADII: Record<string, number> = {
   base:        390,
 }
 
-// Deterministic layout: distribute nodes around each ring
 function layoutProspects(prospects: ProspectView[], radarType: RadarType, size: number) {
   const cx = size / 2, cy = size / 2
   const scale = (size / 2) / 415
@@ -70,6 +68,15 @@ const TEMP_RINGS = [
   { id: 'dormido',  label: 'DORMIDO',     fill: '#F3F4F6', border: '#D1D5DB', textColor: '#9ca3af', r: 390 },
 ]
 
+// Ghost source buttons — positioned by angle offset from center
+const GHOSTS = [
+  { label: 'Nuevo lead',        icon: Plus,     x: -260, y: 0,   source: 'nuevo'       },
+  { label: 'Importar contacto', icon: Upload,   x: 280,  y: -40, source: 'otro'        },
+  { label: 'Networking',        icon: Users,    x: 235,  y: 175, source: 'evento'      },
+  { label: 'Referido',          icon: Users,    x: -130, y: 235, source: 'referido'    },
+  { label: 'Contacto',          icon: UserPlus, x: -250, y: 155, source: 'prospectado' },
+]
+
 interface Props {
   prospects: ProspectView[]
   radarType: RadarType
@@ -77,18 +84,11 @@ interface Props {
   selectedId?: string | null
   onSelect: (id: string | null) => void
   onStageChange: (prospectId: string, newStage: Stage) => Promise<void>
+  onGhostClick?: (source: string) => void
 }
 
-const GHOSTS = [
-  { label: 'Nuevo lead',        icon: Plus,     x: -260, y: 0   },
-  { label: 'Importar contacto', icon: Upload,   x: 280,  y: -40 },
-  { label: 'Networking',        icon: Users,    x: 235,  y: 175 },
-  { label: 'Referido',          icon: Users,    x: -130, y: 235 },
-  { label: 'Contacto',          icon: UserPlus, x: -250, y: 155 },
-]
-
 export default function RadarCanvas({
-  prospects, radarType, size = 620, selectedId, onSelect, onStageChange,
+  prospects, radarType, size = 620, selectedId, onSelect, onStageChange, onGhostClick,
 }: Props) {
   const cx = size / 2, cy = size / 2
   const scale = (size / 2) / 415
@@ -98,7 +98,6 @@ export default function RadarCanvas({
 
   const nodes = layoutProspects(prospects, radarType, size)
 
-  // Drag & drop
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const [hoveredRing, setHoveredRing] = useState<string | null>(null)
@@ -154,69 +153,99 @@ export default function RadarCanvas({
     }
   }, [draggingId, getRingAtPos, prospects, radarType])
 
+  // Node size scales with radar size
+  const nodeSize = Math.max(38, Math.min(54, size * 0.082))
+  const fontSize = Math.max(9, Math.min(12, size * 0.018))
+
   return (
     <div ref={containerRef} className="relative select-none" style={{ width: size, height: size }}>
       {/* SVG rings */}
       <svg width={size} height={size} className="absolute inset-0">
+        {/* Outer glow */}
+        <circle cx={cx} cy={cy} r={(size / 2) - 2}
+          fill="none" stroke="var(--color-border)" strokeWidth="1" opacity="0.5" />
+
         {[...rings].reverse().map(ring => {
           const isHovered = hoveredRing === ring.id && draggingId
           return (
-            <circle
-              key={ring.id}
-              cx={cx} cy={cy}
+            <circle key={ring.id} cx={cx} cy={cy}
               r={ring.r * scale}
               fill={ring.fill}
               stroke={isHovered ? ring.textColor : ring.border}
-              strokeWidth={isHovered ? 2.5 : 1}
-              style={{ transition: 'stroke 0.15s' }}
+              strokeWidth={isHovered ? 2.5 : 1.5}
+              style={{ transition: 'stroke 0.15s, stroke-width 0.15s' }}
             />
           )
         })}
-        {/* Cierre inner glow */}
-        <circle cx={cx} cy={cy} r={36 * scale} fill="#22c55e" opacity="0.18" />
+
+        {/* Center cierre glow */}
+        <circle cx={cx} cy={cy} r={55 * scale} fill="#22c55e" opacity="0.15" />
+        <circle cx={cx} cy={cy} r={30 * scale} fill="#22c55e" opacity="0.20" />
+
+        {/* Cross-hair lines (subtle) */}
+        <line x1={cx} y1={cy - (size/2 - 8)} x2={cx} y2={cy + (size/2 - 8)}
+          stroke="var(--color-border)" strokeWidth="0.5" opacity="0.4" strokeDasharray="4 6" />
+        <line x1={cx - (size/2 - 8)} y1={cy} x2={cx + (size/2 - 8)} y2={cy}
+          stroke="var(--color-border)" strokeWidth="0.5" opacity="0.4" strokeDasharray="4 6" />
       </svg>
 
       {/* Ring labels */}
       {rings.map(ring => {
         if (ring.id === 'cierre' && radarType === 'etapa') return null
-        const top = cy - ring.r * scale + 16
+        const top = cy - ring.r * scale + 14
         const count = nodes.filter(n => n.ring === ring.id).length
         return (
-          <div key={ring.id} className="absolute flex flex-col items-center gap-1.5 z-[2] pointer-events-none"
+          <div key={ring.id} className="absolute flex flex-col items-center gap-1 z-[2] pointer-events-none"
             style={{ left: cx, top, transform: 'translate(-50%, -50%)' }}>
-            <span className="text-[11px] font-extrabold tracking-[1.6px]"
-              style={{ color: ring.textColor }}>{ring.label}</span>
-            <span className="text-[10px] font-bold text-white px-2.5 py-px rounded-full"
-              style={{ background: ring.textColor, fontFamily: 'var(--font-mono)' }}>
+            <span className="font-extrabold tracking-[1.4px]"
+              style={{ color: ring.textColor, fontSize: Math.max(9, fontSize - 1) }}>
+              {ring.label}
+            </span>
+            <span className="font-bold text-white px-2 py-px rounded-full"
+              style={{ background: ring.textColor, fontFamily: 'var(--font-mono)', fontSize: Math.max(8, fontSize - 2) }}>
               {count}
             </span>
           </div>
         )
       })}
 
-      {/* Cierre label (etapa mode) */}
+      {/* Cierre label */}
       {radarType === 'etapa' && (
         <div className="absolute flex flex-col items-center gap-1 z-[2] pointer-events-none"
-          style={{ left: cx, top: cy - 56 * scale, transform: 'translateX(-50%)' }}>
-          <span className="text-[11px] font-extrabold tracking-[1.6px]" style={{ color: '#16a34a' }}>CIERRE</span>
-          <span className="text-[10px] font-bold text-white px-2.5 py-px rounded-full"
-            style={{ background: '#16a34a', fontFamily: 'var(--font-mono)' }}>
+          style={{ left: cx, top: cy - 52 * scale, transform: 'translateX(-50%)' }}>
+          <span className="font-extrabold tracking-[1.4px]"
+            style={{ color: '#16a34a', fontSize: Math.max(9, fontSize - 1) }}>CIERRE</span>
+          <span className="font-bold text-white px-2 py-px rounded-full"
+            style={{ background: '#16a34a', fontFamily: 'var(--font-mono)', fontSize: Math.max(8, fontSize - 2) }}>
             {nodes.filter(n => n.ring === 'cierre').length}
           </span>
         </div>
       )}
 
-      {/* Ghost source buttons */}
+      {/* Ghost source buttons — clickable */}
       {GHOSTS.map((g, i) => {
         const Icon = g.icon
+        const ghostSize = Math.max(36, Math.min(48, size * 0.075))
         return (
-          <div key={i} className="absolute flex flex-col items-center gap-1.5 pointer-events-none"
-            style={{ left: cx + g.x * scale, top: cy + g.y * scale, transform: 'translate(-50%, -50%)' }}>
-            <div className="w-11 h-11 rounded-full flex items-center justify-center"
-              style={{ border: '1.5px dashed #94A1BD', background: 'rgba(255,255,255,0.6)', color: T.fgDim }}>
-              <Icon size={18} />
+          <div key={i}
+            className="absolute flex flex-col items-center gap-1.5 cursor-pointer group"
+            style={{ left: cx + g.x * scale, top: cy + g.y * scale, transform: 'translate(-50%, -50%)', zIndex: 3 }}
+            onClick={() => onGhostClick?.(g.source)}>
+            <div
+              className="rounded-full flex items-center justify-center transition-all group-hover:scale-110"
+              style={{
+                width: ghostSize, height: ghostSize,
+                border: '1.5px dashed #94A1BD',
+                background: 'rgba(255,255,255,0.75)',
+                color: T.fgDim,
+                boxShadow: '0 2px 8px rgba(11,27,61,0.06)',
+              }}>
+              <Icon size={ghostSize * 0.38} />
             </div>
-            <div className="text-[11px] text-center max-w-[80px]" style={{ color: T.fgDim }}>{g.label}</div>
+            <div className="text-center font-medium leading-tight"
+              style={{ color: T.fgDim, fontSize: Math.max(9, fontSize - 2), maxWidth: 72 }}>
+              {g.label}
+            </div>
           </div>
         )
       })}
@@ -232,8 +261,7 @@ export default function RadarCanvas({
         const y = isDragging && dragPos ? dragPos.y : node.y
 
         return (
-          <div
-            key={node.id}
+          <div key={node.id}
             className="absolute flex flex-col items-center cursor-pointer"
             style={{
               left: x, top: y,
@@ -246,46 +274,55 @@ export default function RadarCanvas({
             onMouseDown={e => handleMouseDown(e, node.id)}
             onClick={() => !isDragging && onSelect(isSelected ? null : node.id)}>
 
-            {/* Avatar circle */}
+            {/* Avatar */}
             <div
-              className="w-[50px] h-[50px] rounded-full flex items-center justify-center font-bold text-sm text-white"
+              className="rounded-full flex items-center justify-center font-bold text-white"
               style={{
-                background: 'linear-gradient(135deg,#475569,#334155)',
+                width: nodeSize, height: nodeSize,
+                fontSize: nodeSize * 0.3,
+                background: `linear-gradient(135deg,${tempColor}CC,${tempColor}88)`,
                 border: `3px solid ${tempColor}`,
                 boxShadow: isSelected
-                  ? `0 0 0 6px ${tempColor}33, 0 4px 12px rgba(11,27,61,0.18)`
-                  : `0 2px 8px rgba(11,27,61,0.18)`,
+                  ? `0 0 0 5px ${tempColor}33, 0 4px 16px rgba(11,27,61,0.20)`
+                  : isDragging
+                  ? `0 8px 24px rgba(11,27,61,0.25)`
+                  : `0 2px 8px rgba(11,27,61,0.14)`,
                 fontFamily: 'var(--font-display)',
               }}>
               {node.initials}
             </div>
 
-            {/* Vencido badge */}
-            {node.temperature === 'urgente' || node.temperature === 'riesgo' ? (
+            {/* Urgency badge */}
+            {(node.temperature === 'urgente' || node.temperature === 'riesgo') && (
               <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center"
                 style={{ background: tempColor, fontSize: 8, color: '#fff', fontWeight: 700 }}>!</div>
-            ) : null}
+            )}
 
             {/* Name */}
-            <div className="mt-1 text-[11px] font-bold text-center max-w-[72px] truncate"
-              style={{ color: T.fgHi }}>{node.name.split(' ')[0]}</div>
-
-            {/* Value */}
-            <div className="text-[10px]" style={{ color: T.fgDim, fontFamily: 'var(--font-mono)' }}>
-              {node.potential_value ? fmtMoneyShort(node.potential_value) : '—'}
+            <div className="mt-1 font-bold text-center truncate"
+              style={{ color: T.fgHi, fontSize, maxWidth: nodeSize + 20 }}>
+              {node.name.split(' ')[0]}
             </div>
 
-            {/* Hover mini-card */}
+            {/* Value */}
+            {node.potential_value ? (
+              <div style={{ color: T.fgDim, fontFamily: 'var(--font-mono)', fontSize: Math.max(8, fontSize - 2) }}>
+                {fmtMoneyShort(node.potential_value)}
+              </div>
+            ) : null}
+
+            {/* Hover card */}
             {isHovered && !isDragging && (
-              <div
-                className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-48 rounded-xl p-3 z-50 pointer-events-none"
+              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-48 rounded-xl p-3 z-50 pointer-events-none"
                 style={{
                   background: 'var(--color-card)',
                   border: '1px solid var(--color-border)',
                   boxShadow: '0 8px 24px rgba(11,27,61,0.15)',
                 }}>
                 <div className="font-bold text-sm" style={{ color: T.fgHi }}>{node.name}</div>
-                <div className="text-[11px] mt-0.5" style={{ color: T.fgDim }}>{node.company}</div>
+                {node.company && (
+                  <div className="text-[11px] mt-0.5" style={{ color: T.fgDim }}>{node.company}</div>
+                )}
                 <div className="flex items-center justify-between mt-2">
                   <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
                     style={{ background: stageC?.ring, color: stageC?.label }}>
@@ -297,7 +334,7 @@ export default function RadarCanvas({
                 </div>
                 {node.next_action_type && (
                   <div className="text-[11px] mt-1.5" style={{ color: T.fgDim }}>
-                    Próx: {node.next_action_type.replace('_', ' ')}
+                    Próx: {node.next_action_type.replace(/_/g, ' ')}
                   </div>
                 )}
               </div>
@@ -306,7 +343,6 @@ export default function RadarCanvas({
         )
       })}
 
-      {/* Stage change modal */}
       {stageModal && (
         <StageChangeModal
           prospectId={stageModal.prospectId}

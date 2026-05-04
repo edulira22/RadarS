@@ -18,7 +18,8 @@ const RADAR_TYPES: Array<{ id: RadarType; label: string; icon: typeof Crosshair 
 
 const RESOLUTIONS = ['Baja', 'Media', 'Alta'] as const
 type Resolution = typeof RESOLUTIONS[number]
-const RESOLUTION_MULT: Record<Resolution, number> = { Baja: 0.62, Media: 0.80, Alta: 0.96 }
+// Based on card WIDTH so there's no feedback loop with height
+const RESOLUTION_MULT: Record<Resolution, number> = { Baja: 0.52, Media: 0.68, Alta: 0.84 }
 
 const FILTERS = ['Todos', 'Hoy', 'Vencidos', 'Alto valor', 'Sin acción'] as const
 
@@ -38,22 +39,23 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
   const [showForm, setShowForm] = useState(false)
   const [formSource, setFormSource] = useState<string | undefined>(undefined)
   const [radarSize, setRadarSize] = useState(560)
-  const canvasRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
 
   const selectedProspect = prospects.find(p => p.id === selectedId) ?? null
 
-  // Resize radar to fill available space
+  // Size radar based on card WIDTH to avoid feedback loop with height
   useEffect(() => {
     const update = () => {
-      if (!canvasRef.current) return
-      const { width, height } = canvasRef.current.getBoundingClientRect()
-      const available = Math.min(width - 16, height - 16)
-      if (available > 200) setRadarSize(Math.floor(available * RESOLUTION_MULT[resolution]))
+      if (!cardRef.current) return
+      const { width } = cardRef.current.getBoundingClientRect()
+      // card p-5 = 20px each side → inner width = width - 40
+      const inner = Math.max(width - 40, 300)
+      const size = Math.min(Math.floor(inner * RESOLUTION_MULT[resolution]), 860)
+      setRadarSize(Math.max(size, 420))
     }
-    update()
-    const ro = new ResizeObserver(update)
-    if (canvasRef.current) ro.observe(canvasRef.current)
-    return () => ro.disconnect()
+    const timer = setTimeout(update, 0)
+    window.addEventListener('resize', update)
+    return () => { clearTimeout(timer); window.removeEventListener('resize', update) }
   }, [resolution])
 
   const filtered = prospects.filter(p => {
@@ -78,37 +80,29 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
   const closeForm = () => { setShowForm(false); setFormSource(undefined) }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 px-6 pb-5 gap-3.5">
-      <div className="flex-1 flex gap-3.5 min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 px-6 pb-5 gap-3">
 
-        {/* Radar card */}
-        <main className="flex-1 flex flex-col gap-3.5 min-w-0 min-h-0">
-          <div className="rounded-2xl flex-1 flex flex-col p-5 min-h-0"
+      {/* Main row: radar card + optional detail panel */}
+      <div className="flex-1 flex gap-3.5 min-h-0">
+        <main className="flex-1 flex flex-col gap-3 min-w-0 min-h-0">
+
+          {/* Radar card — scrollable so the large radar is always fully visible */}
+          <div
+            ref={cardRef}
+            className="rounded-2xl flex-1 flex flex-col p-5 overflow-y-auto"
             style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)' }}>
 
-            {/* Header */}
-            <div className="flex items-start justify-between mb-3 flex-shrink-0">
-              <div>
+            {/* Compact header + controls (single area) */}
+            <div className="flex items-center gap-2 mb-4 flex-wrap flex-shrink-0">
+              <div className="flex-1 min-w-0">
                 <div className="text-xs font-extrabold tracking-[1.2px]" style={{ color: 'var(--color-fg-hi)' }}>
                   RADAR DE OPORTUNIDADES
                 </div>
-                <div className="text-xs mt-0.5" style={{ color: 'var(--color-fg-dim)' }}>
-                  Arrastra y suelta para mover clientes
-                  {isPending && <span className="ml-2 opacity-60">· Guardando…</span>}
-                </div>
+                {isPending && (
+                  <div className="text-[11px] mt-0.5" style={{ color: 'var(--color-fg-dim)' }}>Guardando…</div>
+                )}
               </div>
-              <ToggleGroup
-                options={[
-                  { id: 'radar', label: 'Radar', icon: Crosshair },
-                  { id: 'lista', label: 'Lista',  icon: List      },
-                ]}
-                active="radar"
-                onChange={() => {}}
-              />
-            </div>
 
-            {/* Controls */}
-            <div className="flex items-center gap-2 mb-3 flex-wrap flex-shrink-0">
               {/* Radar type */}
               <TabGroup>
                 {RADAR_TYPES.map(rt => {
@@ -128,26 +122,36 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
                 ))}
               </TabGroup>
 
-              {/* Filters */}
-              <div className="flex items-center gap-1 flex-wrap">
-                {FILTERS.map(f => (
-                  <button key={f}
-                    onClick={() => setActiveFilter(f)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-                    style={{
-                      background: activeFilter === f ? 'var(--color-ocean)' : 'var(--color-bg)',
-                      color: activeFilter === f ? '#fff' : 'var(--color-fg-dim)',
-                      border: `1px solid ${activeFilter === f ? 'var(--color-ocean)' : 'var(--color-border)'}`,
-                    }}>
-                    {f === 'Todos' && <Filter size={10} />}
-                    {f}
-                  </button>
-                ))}
+              {/* View toggle */}
+              <TabGroup>
+                <TabBtn active={true} onClick={() => {}}><Crosshair size={12} />Radar</TabBtn>
+                <TabBtn active={false} onClick={() => {}}><List size={12} />Lista</TabBtn>
+              </TabGroup>
+            </div>
+
+            {/* Filters row */}
+            <div className="flex items-center gap-1.5 mb-5 flex-wrap flex-shrink-0">
+              {FILTERS.map(f => (
+                <button key={f}
+                  onClick={() => setActiveFilter(f)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+                  style={{
+                    background: activeFilter === f ? 'var(--color-ocean)' : 'var(--color-bg)',
+                    color: activeFilter === f ? '#fff' : 'var(--color-fg-dim)',
+                    border: `1px solid ${activeFilter === f ? 'var(--color-ocean)' : 'var(--color-border)'}`,
+                  }}>
+                  {f === 'Todos' && <Filter size={10} />}
+                  {f}
+                </button>
+              ))}
+              <div className="ml-auto text-[11px]" style={{ color: 'var(--color-fg-muted)' }}>
+                Arrastra y suelta para mover clientes
               </div>
             </div>
 
-            {/* Canvas — fills remaining vertical space */}
-            <div ref={canvasRef} className="flex-1 flex items-center justify-center min-h-0 overflow-hidden">
+            {/* Radar canvas — centered, generous space */}
+            <div className="flex items-center justify-center pb-4 flex-shrink-0"
+              style={{ minHeight: radarSize + 16 }}>
               {filtered.length === 0 ? (
                 <EmptyRadar userId={userId} />
               ) : (
@@ -167,13 +171,11 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
           <MetricsBar metrics={metrics} />
         </main>
 
-        {/* Right panel */}
         {selectedProspect && (
           <ProspectPanel prospect={selectedProspect} onClose={() => setSelectedId(null)} />
         )}
       </div>
 
-      {/* Form modal triggered by ghost buttons */}
       {showForm && (
         <ProspectForm
           userId={userId}
@@ -190,7 +192,7 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
 
 function TabGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1 p-1 rounded-xl"
+    <div className="flex items-center gap-0.5 p-1 rounded-xl"
       style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
       {children}
     </div>
@@ -213,35 +215,6 @@ function TabBtn({ active, onClick, children }: {
   )
 }
 
-function ToggleGroup({
-  options, active, onChange,
-}: {
-  options: Array<{ id: string; label: string; icon: typeof Crosshair }>
-  active: string
-  onChange: (id: string) => void
-}) {
-  return (
-    <div className="flex p-1 rounded-xl"
-      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
-      {options.map(o => {
-        const Icon = o.icon
-        const isActive = o.id === active
-        return (
-          <button key={o.id} onClick={() => onChange(o.id)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all"
-            style={{
-              background: isActive ? 'var(--color-card)' : 'transparent',
-              color: isActive ? 'var(--color-ocean)' : 'var(--color-fg-dim)',
-              boxShadow: isActive ? '0 1px 3px rgba(11,27,61,0.10)' : 'none',
-            }}>
-            <Icon size={13} />{o.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 function EmptyRadar({ userId }: { userId: string }) {
   const rings = [80, 160, 240, 320, 400]
   return (
@@ -255,9 +228,7 @@ function EmptyRadar({ userId }: { userId: string }) {
         </svg>
       </div>
       <div className="relative flex flex-col items-center gap-4 z-10">
-        <div className="text-xl font-bold" style={{ color: 'var(--color-fg-dim)' }}>
-          Tu radar está vacío
-        </div>
+        <div className="text-xl font-bold" style={{ color: 'var(--color-fg-dim)' }}>Tu radar está vacío</div>
         <div className="text-sm text-center max-w-xs" style={{ color: 'var(--color-fg-muted)' }}>
           Agrega tu primer prospecto y empieza a visualizar tus oportunidades
         </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect, useCallback } from 'react'
-import { Crosshair, List, Flame, BarChart2, Filter } from 'lucide-react'
+import { Crosshair, List, Flame, BarChart2, Filter, ZoomIn, ZoomOut } from 'lucide-react'
 import RadarCanvas from '@/components/radar/RadarCanvas'
 import ProspectPanel from '@/components/prospect/ProspectPanel'
 import ProspectFormWrapper from '@/components/prospect/ProspectFormWrapper'
@@ -11,25 +11,23 @@ import type { ProspectView, RadarMetrics, RadarType, Stage } from '@/types'
 import { updateProspectStage } from './actions'
 
 const RADAR_TYPES: Array<{ id: RadarType; label: string; icon: typeof Crosshair }> = [
-  { id: 'etapa',       label: 'Etapa comercial',  icon: Crosshair },
-  { id: 'temperatura', label: 'Temperatura',       icon: Flame     },
-  { id: 'valor',       label: 'Valor potencial',   icon: BarChart2 },
+  { id: 'etapa',       label: 'Etapa',       icon: Crosshair },
+  { id: 'temperatura', label: 'Temperatura',  icon: Flame     },
+  { id: 'valor',       label: 'Valor',        icon: BarChart2 },
 ]
-
-const RESOLUTIONS = ['Baja', 'Media', 'Alta'] as const
-type Resolution = typeof RESOLUTIONS[number]
-// Fraction of the smaller dimension (canvas area) the radar occupies
-const RESOLUTION_MULT: Record<Resolution, number> = { Baja: 0.76, Media: 0.88, Alta: 0.98 }
-
 const FILTERS = ['Todos', 'Hoy', 'Vencidos', 'Alto valor', 'Sin acción'] as const
-
 const METRIC_STAGES = [
   { key: 'base' as const,        label: 'Base',      color: '#6B8FB5' },
-  { key: 'prospeccion' as const, label: 'Prospección', color: '#2563EB' },
+  { key: 'prospeccion' as const, label: 'Prosp',     color: '#2563EB' },
   { key: 'interes' as const,     label: 'Interés',   color: '#F25C05' },
   { key: 'decision' as const,    label: 'Decisión',  color: '#F2B705' },
   { key: 'cierre' as const,      label: 'Cierre',    color: '#22c55e' },
 ]
+
+// Zoom steps: 60 % → 130 % in 10 % increments
+const ZOOM_MIN = 0.60
+const ZOOM_MAX = 1.30
+const ZOOM_STEP = 0.10
 
 interface Props {
   prospects: ProspectView[]
@@ -40,34 +38,31 @@ interface Props {
 
 export default function RadarView({ prospects, metrics, defaultRadarType, userId }: Props) {
   const [radarType, setRadarType] = useState<RadarType>(defaultRadarType)
-  const [resolution, setResolution] = useState<Resolution>('Media')
   const [activeFilter, setActiveFilter] = useState('Todos')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const [showForm, setShowForm] = useState(false)
   const [formSource, setFormSource] = useState<string | undefined>(undefined)
-  const [radarSize, setRadarSize] = useState(480)
+  const [baseSize, setBaseSize] = useState(500)
+  const [zoom, setZoom] = useState(1.0)
   const cardRef = useRef<HTMLDivElement>(null)
 
   const selectedProspect = prospects.find(p => p.id === selectedId) ?? null
+  const radarSize = Math.round(baseSize * zoom)
 
-  // Size radar to fill the card without ever overflowing or needing scroll
-  // cardRef is flex-1 so its size is determined by the parent, not its content → no feedback loop
+  // Base size = fills the card (controls float on top, only subtract metrics strip ~46px)
   useEffect(() => {
     const update = () => {
       if (!cardRef.current) return
       const { width, height } = cardRef.current.getBoundingClientRect()
-      // Known overhead inside card:
-      // p-5 top+bottom (40) + header row (44) + filters row (38) + gap×2 (28) + metrics strip (46) = 196px
-      const canvasH = Math.max(0, height - 196)
-      const canvasW = Math.max(0, width - 40) // p-5 left + right
-      const available = Math.min(canvasH, canvasW)
-      setRadarSize(Math.max(Math.floor(available * RESOLUTION_MULT[resolution]), 320))
+      const h = Math.max(0, height - 46)   // only metrics strip
+      const w = Math.max(0, width - 40)    // card horizontal padding
+      setBaseSize(Math.max(Math.min(h, w), 320))
     }
-    const id = setTimeout(update, 0) // defer to after paint
+    const id = setTimeout(update, 0)
     window.addEventListener('resize', update)
     return () => { clearTimeout(id); window.removeEventListener('resize', update) }
-  }, [resolution])
+  }, [])
 
   const filtered = prospects.filter(p => {
     if (activeFilter === 'Todos') return true
@@ -88,75 +83,66 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
     setShowForm(true)
   }, [])
 
-  const closeForm = () => { setShowForm(false); setFormSource(undefined) }
+  const zoomIn  = () => setZoom(z => Math.min(+(z + ZOOM_STEP).toFixed(1), ZOOM_MAX))
+  const zoomOut = () => setZoom(z => Math.max(+(z - ZOOM_STEP).toFixed(1), ZOOM_MIN))
 
   return (
     <div className="flex-1 flex flex-col min-h-0 px-6 pb-5">
       <div className="flex-1 flex gap-3.5 min-h-0">
 
-        {/* ── Radar card ─────────────────────────────────── */}
+        {/* ── Main radar card ─────────────────────────── */}
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
           <div
             ref={cardRef}
-            className="flex-1 flex flex-col p-5 rounded-2xl min-h-0"
+            className="flex-1 flex flex-col rounded-2xl overflow-hidden relative min-h-0"
             style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)' }}>
 
-            {/* Header row ─ title + all controls */}
-            <div className="flex items-center gap-2 mb-2 flex-shrink-0 flex-wrap">
-              <span className="text-xs font-extrabold tracking-[1.2px] mr-1" style={{ color: 'var(--color-fg-hi)' }}>
-                RADAR DE OPORTUNIDADES
-              </span>
-              {isPending && <span className="text-[11px]" style={{ color: 'var(--color-fg-muted)' }}>Guardando…</span>}
+            {/* ── FLOATING TOP CONTROLS ─────────────────
+                Positioned absolute so they don't steal height */}
+            <div className="absolute top-3 left-4 right-4 z-20 flex items-center gap-2 flex-wrap pointer-events-none">
+              {/* Title */}
+              <div className="pointer-events-auto">
+                <GlassPill>
+                  <span className="text-[11px] font-extrabold tracking-[1px]"
+                    style={{ color: 'var(--color-fg-hi)' }}>RADAR</span>
+                  {isPending && <span className="text-[10px] ml-1" style={{ color: 'var(--color-fg-muted)' }}>·</span>}
+                </GlassPill>
+              </div>
 
-              <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+              <div className="ml-auto flex items-center gap-1.5 flex-wrap pointer-events-auto">
                 {/* Radar type */}
-                <TabGroup>
+                <GlassPill noPad>
                   {RADAR_TYPES.map(rt => {
                     const Icon = rt.icon
                     return (
-                      <TabBtn key={rt.id} active={radarType === rt.id} onClick={() => setRadarType(rt.id)}>
+                      <button key={rt.id}
+                        onClick={() => setRadarType(rt.id)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+                        style={{
+                          background: radarType === rt.id ? 'var(--color-ocean)' : 'transparent',
+                          color: radarType === rt.id ? '#fff' : 'var(--color-fg-dim)',
+                        }}>
                         <Icon size={11} />{rt.label}
-                      </TabBtn>
+                      </button>
                     )
                   })}
-                </TabGroup>
-
-                {/* Resolution */}
-                <TabGroup>
-                  {RESOLUTIONS.map(r => (
-                    <TabBtn key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</TabBtn>
-                  ))}
-                </TabGroup>
+                </GlassPill>
 
                 {/* View toggle */}
-                <TabGroup>
-                  <TabBtn active={true} onClick={() => {}}><Crosshair size={11} />Radar</TabBtn>
-                  <TabBtn active={false} onClick={() => {}}><List size={11} />Lista</TabBtn>
-                </TabGroup>
+                <GlassPill noPad>
+                  <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold"
+                    style={{ background: 'var(--color-ocean)', color: '#fff' }}>
+                    <Crosshair size={11} />Radar
+                  </button>
+                  <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold"
+                    style={{ color: 'var(--color-fg-dim)' }}>
+                    <List size={11} />Lista
+                  </button>
+                </GlassPill>
               </div>
             </div>
 
-            {/* Filters row */}
-            <div className="flex items-center gap-1.5 mb-2 flex-shrink-0 flex-wrap">
-              {FILTERS.map(f => (
-                <button key={f}
-                  onClick={() => setActiveFilter(f)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
-                  style={{
-                    background: activeFilter === f ? 'var(--color-ocean)' : 'var(--color-bg)',
-                    color: activeFilter === f ? '#fff' : 'var(--color-fg-dim)',
-                    border: `1px solid ${activeFilter === f ? 'var(--color-ocean)' : 'var(--color-border)'}`,
-                  }}>
-                  {f === 'Todos' && <Filter size={10} />}
-                  {f}
-                </button>
-              ))}
-              <span className="ml-auto text-[10px]" style={{ color: 'var(--color-fg-muted)' }}>
-                Arrastra y suelta para mover
-              </span>
-            </div>
-
-            {/* Radar canvas — flex-1 so it takes all remaining space in the card */}
+            {/* ── RADAR CANVAS — full height ────────────── */}
             <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden">
               {filtered.length === 0 ? (
                 <EmptyRadar userId={userId} />
@@ -173,15 +159,58 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
               )}
             </div>
 
-            {/* Compact metrics strip — replaces the full MetricsBar card */}
-            <div className="flex-shrink-0 flex items-center gap-4 pt-2.5 mt-1 flex-wrap"
-              style={{ borderTop: '1px solid var(--color-border-soft)' }}>
+            {/* ── FLOATING BOTTOM CONTROLS ──────────────── */}
+            <div className="absolute bottom-[50px] left-4 right-4 z-20 flex items-center justify-between gap-2 pointer-events-none">
+              {/* Filters */}
+              <div className="flex items-center gap-1 flex-wrap pointer-events-auto">
+                {FILTERS.map(f => (
+                  <button key={f}
+                    onClick={() => setActiveFilter(f)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all"
+                    style={{
+                      background: activeFilter === f
+                        ? 'var(--color-ocean)'
+                        : 'rgba(255,255,255,0.88)',
+                      color: activeFilter === f ? '#fff' : 'var(--color-fg-dim)',
+                      border: `1px solid ${activeFilter === f ? 'var(--color-ocean)' : 'rgba(228,233,242,0.8)'}`,
+                      backdropFilter: 'blur(6px)',
+                    }}>
+                    {f === 'Todos' && <Filter size={9} />}
+                    {f}
+                  </button>
+                ))}
+              </div>
+
+              {/* Zoom control */}
+              <div className="flex items-center gap-1 pointer-events-auto">
+                <GlassPill noPad>
+                  <button onClick={zoomOut} disabled={zoom <= ZOOM_MIN}
+                    className="p-1.5 rounded-lg transition-opacity disabled:opacity-30"
+                    style={{ color: 'var(--color-fg-dim)' }}>
+                    <ZoomOut size={13} />
+                  </button>
+                  <span className="text-[11px] font-bold px-1 min-w-[36px] text-center"
+                    style={{ color: 'var(--color-fg-hi)', fontFamily: 'var(--font-mono)' }}>
+                    {Math.round(zoom * 100)}%
+                  </span>
+                  <button onClick={zoomIn} disabled={zoom >= ZOOM_MAX}
+                    className="p-1.5 rounded-lg transition-opacity disabled:opacity-30"
+                    style={{ color: 'var(--color-fg-dim)' }}>
+                    <ZoomIn size={13} />
+                  </button>
+                </GlassPill>
+              </div>
+            </div>
+
+            {/* ── METRICS STRIP — always at bottom ─────── */}
+            <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 flex-wrap z-10 relative"
+              style={{ borderTop: '1px solid var(--color-border-soft)', background: 'rgba(248,250,253,0.95)' }}>
               {METRIC_STAGES.map(s => {
                 const m = metrics[s.key]
                 if (!m) return null
                 return (
                   <div key={s.key} className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.color }} />
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
                     <span className="text-[11px]" style={{ color: 'var(--color-fg-muted)' }}>{s.label}</span>
                     <span className="text-[11px] font-bold"
                       style={{ color: 'var(--color-fg-hi)', fontFamily: 'var(--font-mono)' }}>
@@ -196,9 +225,9 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
                   </div>
                 )
               })}
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-1.5">
                 <span className="text-[11px]" style={{ color: 'var(--color-fg-muted)' }}>Pipeline</span>
-                <span className="text-sm font-bold"
+                <span className="text-[13px] font-bold"
                   style={{ color: 'var(--color-ocean)', fontFamily: 'var(--font-mono)' }}>
                   {fmtMoneyShort(metrics.total.value)}
                 </span>
@@ -207,7 +236,7 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
           </div>
         </main>
 
-        {/* ── Detail panel ─────────────────────────────── */}
+        {/* ── Detail panel ──────────────────────────────── */}
         {selectedProspect && (
           <ProspectPanel prospect={selectedProspect} onClose={() => setSelectedId(null)} />
         )}
@@ -217,56 +246,45 @@ export default function RadarView({ prospects, metrics, defaultRadarType, userId
         <ProspectForm
           userId={userId}
           defaultSource={formSource}
-          onClose={closeForm}
-          onSaved={() => { closeForm(); window.location.reload() }}
+          onClose={() => { setShowForm(false); setFormSource(undefined) }}
+          onSaved={() => { setShowForm(false); setFormSource(undefined); window.location.reload() }}
         />
       )}
     </div>
   )
 }
 
-// ─── Sub-components ───────────────────────────────────────────────
+// ─── Glass pill container ──────────────────────────────────────────
 
-function TabGroup({ children }: { children: React.ReactNode }) {
+function GlassPill({ children, noPad }: { children: React.ReactNode; noPad?: boolean }) {
   return (
-    <div className="flex items-center gap-0.5 p-0.5 rounded-xl"
-      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+    <div
+      className={`flex items-center rounded-xl ${noPad ? 'p-0.5' : 'px-3 py-1.5'}`}
+      style={{
+        background: 'rgba(255,255,255,0.90)',
+        border: '1px solid rgba(228,233,242,0.85)',
+        backdropFilter: 'blur(10px)',
+        boxShadow: '0 2px 8px rgba(11,27,61,0.06)',
+      }}>
       {children}
     </div>
   )
 }
 
-function TabBtn({ active, onClick, children }: {
-  active: boolean; onClick: () => void; children: React.ReactNode
-}) {
-  return (
-    <button onClick={onClick}
-      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-      style={{
-        background: active ? 'var(--color-card)' : 'transparent',
-        color: active ? 'var(--color-ocean)' : 'var(--color-fg-dim)',
-        boxShadow: active ? '0 1px 3px rgba(11,27,61,0.10)' : 'none',
-        whiteSpace: 'nowrap',
-      }}>
-      {children}
-    </button>
-  )
-}
+// ─── Empty state ───────────────────────────────────────────────────
 
 function EmptyRadar({ userId }: { userId: string }) {
   return (
     <div className="flex flex-col items-center gap-4">
-      <svg width="200" height="200" viewBox="0 0 200 200" className="opacity-15">
-        {[40, 70, 100, 130, 160].map((r, i) => (
-          <circle key={i} cx="100" cy="100" r={r * 0.6}
-            fill="none" stroke="var(--color-border)" strokeWidth="1.5" strokeDasharray="5 4" />
+      <svg width="260" height="260" viewBox="0 0 260 260" className="opacity-12">
+        {[30, 60, 90, 120, 150].map((r, i) => (
+          <circle key={i} cx="130" cy="130" r={r}
+            fill="none" stroke="var(--color-border)" strokeWidth="1.5" strokeDasharray="6 5" />
         ))}
       </svg>
-      <div className="-mt-44 flex flex-col items-center gap-3 z-10 relative">
-        <div className="text-base font-bold" style={{ color: 'var(--color-fg-dim)' }}>Tu radar está vacío</div>
-        <div className="text-sm text-center max-w-xs" style={{ color: 'var(--color-fg-muted)' }}>
-          Agrega tu primer prospecto
-        </div>
+      <div className="-mt-52 flex flex-col items-center gap-3 z-10 relative">
+        <p className="text-base font-bold" style={{ color: 'var(--color-fg-dim)' }}>Tu radar está vacío</p>
+        <p className="text-sm" style={{ color: 'var(--color-fg-muted)' }}>Agrega tu primer prospecto</p>
         <ProspectFormWrapper userId={userId} />
       </div>
     </div>

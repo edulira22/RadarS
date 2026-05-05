@@ -228,6 +228,7 @@ export default function RadarCanvas({
         const ghostSize = Math.max(36, Math.min(48, size * 0.075))
         return (
           <div key={i}
+            data-ghost-btn="true"
             className="absolute flex flex-col items-center gap-1.5 cursor-pointer group"
             style={{ left: cx + g.x * scale, top: cy + g.y * scale, transform: 'translate(-50%, -50%)', zIndex: 3 }}
             onClick={() => onGhostClick?.(g.source)}>
@@ -262,6 +263,7 @@ export default function RadarCanvas({
 
         return (
           <div key={node.id}
+            data-prospect-node="true"
             className="absolute flex flex-col items-center cursor-pointer"
             style={{
               left: x, top: y,
